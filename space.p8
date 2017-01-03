@@ -3,13 +3,13 @@ version 8
 __lua__
 score = 0
 life = 3
-state = 0
+gamestate = 0
+spawntimer = 0
 framecount = 0
-elapsedtime = 0
 spawntime = 25
 speed = 1
 bullettimer = 0
-velocity = 0.9
+velocity = 0.8
 ship = { 
 	x = 64 - 4, 
 	y = 127 - 8,
@@ -22,13 +22,13 @@ ship = {
 stars = {}
 enemies = {}
 bullets = {}
-lastfirestate = false
+lastfiregamestate = false
 
 -- get a valid bullet index
-function getbulletslot()
+function getfreebullet()
   size = #bullets
   for i = 1, size do
-    if bullets[i].spawned == false then
+    if bullets[i].dead == true then
     	return i
     end
   end
@@ -37,7 +37,7 @@ function getbulletslot()
 end
 
 -- get a valid enemy index
-function getenemyslot()
+function getfreeenemy()
 	size = #enemies
 	for i = 1, size do
 		if enemies[i].dead == true then
@@ -48,25 +48,21 @@ function getenemyslot()
 	return size + 1
 end
 
-function distance(p0, p1)
- local dx = p0.x - p1.x
- local dy = p0.y - p1.y
- return sqrt(dx * dx + dy * dy)
-end
-
-function intersect(b, e)
-	return distance(b, e) < 2 + 4 
+function intersect(p0, p1)
+	local dx = p0.x - p1.x
+	local dy = p0.y - p1.y
+	return sqrt(dx * dx + dy * dy) < 2 + 4 
 end
 
 function firewaspressed()
-	return lastfirestate == true and btn(4) == false
+	return lastfiregamestate == true and btn(4) == false
 end
 
-function restart(startgame)
+function resetgame(startgame)
 	score = 0
 	life = 3
+	spawntimer = 0
 	framecount = 0
-	elapsedtime = 0
 	spawntime = 25
 	speed = 1
 	bullettimer = 0
@@ -74,54 +70,71 @@ function restart(startgame)
 	ship.x =  64 - 4 
 	ship.y = 127 - 8
 	ship.vx = 0
- ship.vy = 0
+	ship.vy = 0
 	ship.spdx = 0.4
 	ship.spdy = 0.25
 
 	bullets = {}
 	enemies = {}
 	
-	lastfirestate = btn(4)
+	lastfiregamestate = btn(4)
 	
 	if startgame == true then 
-		state = 1
+		gamestate = 1
 	else
-		state = 0
+		gamestate = 0
 	end
+end
+
+function respawn()
+	spawntimer = 0
+ ship.x =  64 - 4 
+	ship.y = 127 - 8
+	ship.vx = 0
+	ship.vy = 0
+	ship.spdx = 0.4
+	ship.spdy = 0.25
+	
+	local ecount = #enemies
+	for i = 1, ecount do
+		enemies[i].dead = true
+	end
+				
+	gamestate = 1
 end
 
 function _init()
 	-- create stars
- for i = 1, 25 do
- 		stars[i] = {
- 			x = flr(rnd(127)),
- 			y = flr(rnd(127))
- 		} 
- end
- 
- restart(false)
+	for i = 1, 25 do
+		stars[i] = {
+			x = flr(rnd(127)),
+			y = flr(rnd(127))
+		} 
+	end
+
+	resetgame(false)
 end
 
 function _update()
-	if state == 1 then
+	if gamestate == 1 then
 		updategame()
 	elseif firewaspressed() then
-		if state == 2 then
+		if gamestate == 2 then
 			if life > 0 then
-				state = 1
+				respawn()
 			else
-				state = 0
+				gamestate = 0
 			end
 		else
-			restart(true)
+			resetgame(true)
 		end
 	end
-	lastfirestate = btn(4)
+	lastfiregamestate = btn(4)
 end
 
 function updategame()
+	spawntimer += 1
 	framecount += 1
-	elapsedtime += 1
 	
 	if bullettimer > 0 then
 		bullettimer -= 1
@@ -130,20 +143,19 @@ function updategame()
 		end
 	end
 	
-	if elapsedtime > 0 and elapsedtime % 100 == 0 and spawntime > 5 then
+	if framecount > 0 and framecount % 100 == 0 and spawntime > 5 then
 		spawntime -= 1
 		speed += 1
 	end
 	
-	if framecount > spawntime then
-		framecount = 0
+	if spawntimer > spawntime then
+		spawntimer = 0
 	end
 
 	-- move stars
 	size = #stars
 	for i = 1, size do
 		stars[i].y += 1
-		
 		if (stars[i].y > 127) then
 			stars[i].y = 0
 		end
@@ -181,8 +193,8 @@ function updategame()
 	end 
 	
 	-- spawn enemies
-	if framecount == 1 then
-		idx = getenemyslot()
+	if spawntimer == 1 then
+		idx = getfreeenemy()
 		if enemies[idx] == nil then
 			enemies[idx] = {}
 		end
@@ -199,22 +211,23 @@ function updategame()
 			
 			if enemies[i].y >= 127 then
 				enemies[i].dead = true
-			 score -= 10
+				score -= 10
 			end
 		end
 	end
 	
 	-- spawn a new bullet
 	if firewaspressed() and bullettimer == 0 then
-	 idx = getbulletslot()
-	 bullettimer = 15
-	 if bullets[idx] == nil then
-	 	bullets[idx] = {}
-	 end
+		idx = getfreebullet()
+		bullettimer = 12
+		
+		if bullets[idx] == nil then
+			bullets[idx] = {}
+		end
 	 
-	 bullets[idx].x = ship.x
+		bullets[idx].x = ship.x
 		bullets[idx].y = ship.y
-		bullets[idx].spawned = true
+		bullets[idx].dead = false
 		sfx(0)
 	end
 	
@@ -223,32 +236,30 @@ function updategame()
 	size = #bullets
 	ecount = #enemies
 	for i = 1, size do
-		if bullets[i].spawned then
+		if bullets[i].dead == false then
 			bullets[i].y -= 2
 			
 			if bullets[i].y <= 0 then
-				bullets[i].spawned = false
+				bullets[i].dead = true
 			end
 			
-			if bullets[i].spawned == true then
-			  for j = 1, ecount do		  	
-			  	if enemies[j].dead == false and  intersect(bullets[i], enemies[j]) == true then
-							bullets[i].dead = true
-							bullets[i].spawned = false
-							enemies[j].dead = true
-							score += 25	
-							sfx(1)	  	
-			  	end
-			  end
+			if bullets[i].dead == false then
+				for j = 1, ecount do		  	
+					if enemies[j].dead == false and  intersect(bullets[i], enemies[j]) == true then
+						bullets[i].dead = true
+						enemies[j].dead = true
+						score += 25	
+						sfx(1)	  	
+					end
+				end
 			end
-			
 		end
 	end
 	
 	-- check collision with player
 	for i = 1, ecount do
 		if (enemies[i].dead == false and intersect(ship, enemies[i]) == true) then
-			state = 2
+			gamestate = 2
 			life = life - 1
 			enemies[i].dead = true
 			sfx(1)
@@ -263,12 +274,12 @@ end
 function _draw()
 	rectfill(0,0, 127, 127, 0)
 
-	if state == 0 then
+	if gamestate == 0 then
 		drawtitle()
-		print("press a to start", 25, 110, 9)
-	elseif state == 1 then
+		print("press (c) to start", 25, 110, 9)
+	elseif gamestate == 1 then
 		drawgame()
-	elseif state == 2 then
+	elseif gamestate == 2 then
 	 drawend()
 	end
 end
@@ -276,8 +287,8 @@ end
 function drawtitle()
 	local counter = 0
 	for i = 16, 20 do
-	 spr(i, 35 + counter, 40)
-	 counter += 10
+		spr(i, 35 + counter, 40)
+		counter += 10
 	end
 	
 	counter = 0
@@ -293,10 +304,10 @@ function drawend()
 	if life == 0 then
 	 	print("game over", 45, 5, 3)
 	 	print("your score: "..score.." points", 20, 55, 9)
-	 	print("press a to return to the menu", 5, 110, 5)
+	 	print("press (c) to return to the menu", 5, 110, 5)
 	 else
 	 	print("your ship has been destroyed!", 5, 55, 3)
-	 	print("press a to restart", 25, 110, 5)
+	 	print("press (c) to restart", 25, 110, 5)
 	 end
 end
 
@@ -319,9 +330,9 @@ function drawgame()
 	end
 	
 	-- draw bullets
- size = #bullets
+	size = #bullets
 	for i = 1, size do
-		if bullets[i].spawned then
+		if bullets[i].dead == false then
 			spr(2, bullets[i].x, bullets[i].y)
 		end
 	end
